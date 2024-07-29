@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:walletconnect_flutter_v2/walletconnect_flutter_v2.dart';
 import 'package:web3modal_flutter/constants/string_constants.dart';
@@ -13,12 +14,20 @@ class BlockChainService implements IBlockChainService {
   late final String _baseUrl;
   late final String _clientId;
 
+  ValueNotifier<bool> initialized = ValueNotifier(false);
+
   BlockChainService({required ICore core}) : _core = core;
 
   @override
   Future<void> init() async {
+    if (initialized.value) {
+      return;
+    }
+
     _baseUrl = '${UrlConstants.blockChainService}/v1';
     _clientId = await _core.crypto.getClientId();
+
+    initialized.value = true;
   }
 
   Map<String, String> get _requiredParams => {
@@ -155,3 +164,4 @@ class BlockChainService implements IBlockChainService {
   //   return '';
   // }
 }
+
