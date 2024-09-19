@@ -3,7 +3,7 @@ description: A dApp showing how to use WalletConnect v2 with Flutter
 
 publish_to: "none"
 
-version: 3.3.0
+version: 3.3.3
 
 environment:
   sdk: ">=3.0.1 <4.0.0"
@@ -15,6 +15,7 @@ dependencies:
   fl_toast: ^3.1.0
   shared_preferences: ^2.2.0
   intl: ^0.19.0
+  package_info_plus: ^7.0.0
   web3modal_flutter:
     path: ../
 

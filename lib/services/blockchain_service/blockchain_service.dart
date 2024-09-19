@@ -11,17 +11,13 @@ import 'package:web3modal_flutter/services/logger_service/logger_service_singlet
 class BlockChainService implements IBlockChainService {
   late final ICore _core;
   late final String _baseUrl;
-  late final String _clientId;
+  String? _clientId;
 
-  BlockChainService({required ICore core}) : _core = core;
+  BlockChainService({required ICore core})
+      : _core = core,
+        _baseUrl = '${UrlConstants.blockChainService}/v1';
 
-  @override
-  Future<void> init() async {
-    _baseUrl = '${UrlConstants.blockChainService}/v1';
-    _clientId = await _core.crypto.getClientId();
-  }
-
-  Map<String, String> get _requiredParams => {
+  Map<String, String?> get _requiredParams => {
         'projectId': _core.projectId,
         'clientId': _clientId,
       };
@@ -32,10 +28,18 @@ class BlockChainService implements IBlockChainService {
       };
 
   @override
+  Future<void> init() async {
+    _clientId = await _core.crypto.getClientId();
+  }
+
+  @override
   Future<BlockchainIdentity> getIdentity(String address) async {
     try {
       final uri = Uri.parse('$_baseUrl/identity/$address');
       final queryParams = {..._requiredParams};
+      if (queryParams['clientId'] == null) {
+        queryParams['clientId'] = await _core.crypto.getClientId();
+      }
       final response = await http.get(
         uri.replace(queryParameters: queryParams),
         headers: _requiredHeaders,
@@ -51,6 +55,7 @@ class BlockChainService implements IBlockChainService {
     }
   }
 
+  int _retries = 1;
   @override
   Future<dynamic> getRpcRequest({
     required String method,
@@ -66,6 +71,9 @@ class BlockChainService implements IBlockChainService {
     }
     final uri = Uri.parse(_baseUrl);
     final queryParams = {..._requiredParams, 'chainId': chain};
+    if (queryParams['clientId'] == null) {
+      queryParams['clientId'] = await _core.crypto.getClientId();
+    }
     final response = await http.post(
       uri.replace(queryParameters: queryParams),
       headers: {
@@ -73,13 +81,14 @@ class BlockChainService implements IBlockChainService {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
+        'id': 1,
         'jsonrpc': '2.0',
         'method': method,
         'params': params,
-        'chainId': chain.split(':').last,
       }),
     );
     if (response.statusCode == 200 && response.body.isNotEmpty) {
+      _retries = 1;
       try {
         final result = _parseRpcResultAs<String>(response.body);
         final amount = EtherAmount.fromBigInt(EtherUnit.wei, hexToInt(result));
@@ -88,25 +97,37 @@ class BlockChainService implements IBlockChainService {
         rethrow;
       }
     } else {
-      final result = jsonDecode(response.body) as Map<String, dynamic>;
-      final reasons = result['reasons'] as List;
-      final reason = reasons.first as Map<String, dynamic>;
-      loggerService.instance.i(
-        '[$runtimeType] Failed to get request $method. ${reason['description']}',
-      );
+      if (response.body.isEmpty && _retries > 0) {
+        loggerService.instance.i('[$runtimeType] Empty body');
+        _retries -= 1;
+        await getRpcRequest(method: method, params: params, chain: chain);
+      } else {
+        loggerService.instance.i(
+          '[$runtimeType] Failed to get request $method. '
+          'Response: ${response.body}, Status code: ${response.statusCode}',
+        );
+      }
     }
   }
 
   T _parseRpcResultAs<T>(String body) {
-    final result = Map<String, dynamic>.from({
-      ...jsonDecode(body),
-      'id': -1,
-    });
-    final jsonResponse = JsonRpcResponse.fromJson(result);
-    if (jsonResponse.result != null) {
-      return jsonResponse.result;
+    try {
+      final result = Map<String, dynamic>.from({
+        ...jsonDecode(body),
+        'id': 1,
+      });
+      final jsonResponse = JsonRpcResponse.fromJson(result);
+      if (jsonResponse.result != null) {
+        return jsonResponse.result;
+      }
+      throw jsonResponse.error ??
+          WalletConnectError(
+            code: 0,
+            message: 'Error parsing result',
+          );
+    } catch (e) {
+      rethrow;
     }
-    throw jsonResponse.error!;
   }
 
   // @override
